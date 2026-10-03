@@ -100,6 +100,8 @@ Object.assign(SALON, {
   "accentColor": "#8B6B4A",
   "rating": 4.9,
   "reviewCount": 324,
+  "placeId": "ChIJ42fn6EIHbUcRIoJmxpn6Jug",
+  "mapsKey": "AIzaSyA_jf2Ye6S4CgD40L_9TjVpWxz_Q7o6yvs",
   "openingHours": [
     {
       "day": "Montag",
@@ -250,6 +252,10 @@ section[id]{scroll-margin-top:calc(var(--header-h) + 12px)}
 .gallery figure:first-child{grid-column:span 2;aspect-ratio:16/10}
 .gallery img{width:100%;height:100%;object-fit:cover;transition:transform .6s ease}
 .gallery figure:hover img{transform:scale(1.03)}
+.photo-credit{position:absolute;right:6px;bottom:6px;max-width:calc(100% - 12px);padding:2px 7px;border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font-size:11px;line-height:1.5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.photo-credit a{color:#fff;text-decoration:underline}
+.hero-img,.gallery figure{position:relative}
+.photos-source{margin-top:10px;font-size:12px;color:var(--muted,#777)}
 .gallery .fallback{width:100%;height:100%;display:grid;place-items:center;color:var(--accent-strong);font-family:var(--serif);font-size:22px}
 @media (min-width:900px){.gallery{grid-template-columns:repeat(3,1fr);gap:14px}.gallery figure:first-child{grid-column:span 2;grid-row:span 2;aspect-ratio:auto}}
 .note{font-size:14px;color:var(--ink-3);display:inline-flex;gap:8px;align-items:center}
@@ -737,6 +743,43 @@ a.c-item:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px);color:var(
 
   /* ---------- Gallery ---------- */
   $("#gallery").innerHTML = imgs.map((g) => `<figure>${imgTag(g)}</figure>`).join("");
+
+  /* ---------- Real photos from Google Maps ----------
+     Loaded live from Google every time (Google doesn't allow copying them),
+     with the photographer credited on each photo. Photos the salon uploaded
+     itself come first. If anything fails, the sample photos above stay. */
+  async function loadGooglePhotos() {
+    if (!S.placeId || !S.mapsKey) return;
+    await new Promise((resolve, reject) => {
+      window.__mapsReady = resolve;
+      const tag = document.createElement("script");
+      tag.src = "https://maps.googleapis.com/maps/api/js?key=" + encodeURIComponent(S.mapsKey) +
+        "&v=weekly&loading=async&language=de&region=AT&callback=__mapsReady";
+      tag.async = true; tag.onerror = reject;
+      document.head.appendChild(tag);
+    });
+    const { Place } = await google.maps.importLibrary("places");
+    const place = new Place({ id: S.placeId });
+    await place.fetchFields({ fields: ["photos"] });
+    const short = (t) => t.toLowerCase().replace(/[^a-z0-9äöüß]/g, "");
+    const isOwn = (ph) => (ph.authorAttributions || []).some((a) => {
+      const n = short(a.displayName || ""), salon = short(S.name);
+      return n && (salon.includes(n.slice(0, 6)) || n.includes(salon.slice(0, 6)));
+    });
+    const photos = [...(place.photos || [])].sort((a, b) => isOwn(b) - isOwn(a)).slice(0, 7);
+    if (!photos.length) return;
+    const figure = (ph, i) => {
+      const a = (ph.authorAttributions || [])[0] || {};
+      const credit = a.displayName ? (a.uri ? `<a href="${esc(a.uri)}" target="_blank" rel="noopener">${esc(a.displayName)}</a>` : esc(a.displayName)) : "";
+      return `<img src="${esc(ph.getURI({ maxWidth: i === 0 ? 1400 : 900 }))}" alt="Foto von ${esc(S.name)}" ${i === 0 ? 'fetchpriority="high"' : 'loading="lazy"'} decoding="async" onerror="imgFallback(this)">` +
+        (credit ? `<span class="photo-credit">Foto: ${credit}</span>` : "");
+    };
+    const hero = $("#heroImg");
+    if (hero) hero.innerHTML = figure(photos[0], 0);
+    $("#gallery").innerHTML = photos.map((ph, i) => `<figure>${figure(ph, i)}</figure>`).join("");
+    $("#gallery").insertAdjacentHTML("afterend", '<p class="photos-source">Fotos: Google Maps</p>');
+  }
+  loadGooglePhotos().catch(() => {});
 
   /* ---------- Team ---------- */
   const avatar = (m) => `<div class="avatar" aria-hidden="${m.photo ? "false" : "true"}">${m.photo ? `<img src="${esc(m.photo)}" alt="Porträt von ${esc(m.name)}" loading="lazy">` : esc(initials(m.name))}</div>`;
